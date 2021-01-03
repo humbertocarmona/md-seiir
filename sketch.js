@@ -1,51 +1,72 @@
 
 var world, world2;
 var running = false;
-var beta = 0.3, phi = 0.3, alpha0 = 0.2, mu = 0.2, invsigma = 100, invgamma = 500;
+var beta = 0.3, phi = 0.3, alpha0 = 0.2, mu = 0.2, incubationPeriod = 100, infectionPeriod = 500;
+var gui, visible=false;
 
 function setup() {
   createCanvas(1000, 800)
   // put setup code here
 
+  gui = createGui();
+  sliderRange(0.1, 1, 0.1);
+  gui.addGlobals('beta');
+
+  sliderRange(0.1, 0.5, 0.1);
+	gui.addGlobals('alpha0');
+
+  sliderRange(0, 1, 0.1);
+  gui.addGlobals('mu');
+  
+  sliderRange(0, 1, 0.1);
+	gui.addGlobals('phi');
+
+  sliderRange(0, 500, 50);
+	gui.addGlobals('incubationPeriod')
+
+  sliderRange(100, 500, 50);
+  gui.addGlobals('infectionPeriod')
+
+
+  
   world = new World(10,10,500,500);
   world.addParticles(15,15);  
- 
+  
+  runButton = createButton("play");
+	runButton.mousePressed(togglePlaying);
 
-  // let p = new Particle(0.5*width - 20, 0.5*height);
-  // p.setVelocity(10.0,-15);
-  // world.addParticle(p);
-  // p = new Particle(0.5*width + 20, 0.5*height);
-  // p.setVelocity(-10.0,-15);
-  // world.addParticle(p);
+	runButton = createButton("controls");
+  runButton.mousePressed(toggleControls);
+  
 
-  // noLoop();
+  gui.hide();
+  noLoop();
 }
 
 function draw() {
-  background(150);
+  background(127);
 
-
-
-
-  // put drawing code here
   world.update();  
-  world.show();
-  
+  world.show(); 
   if (frameCount>100  && !world.running) noLoop();
-  // noLoop();
 
-  let c = world.mouseParticle(mouseX,mouseY);
-  strokeWeight(0);
-  fill(0);
-  textAlign(LEFT,CENTER);
-  text('hi '+c,10,height-10)
+}
+
+function togglePlaying(){
+  running = !running;
+  if (running) loop();
+  else noLoop();
+}
+
+function toggleControls(){
+	visible = !visible;
+	if (visible) gui.show();
+	else gui.hide();
 }
 
 function mousePressed() {
-  // running = !running;
-  // if (running) loop();
-  // else noLoop();
-  let n =  world.mouseParticle(mouseX,mouseY);
+
+  let n =  world.clickDistancing(mouseX,mouseY);
 
   world.distancingParticle(n)
 
@@ -56,6 +77,7 @@ function mousePressed() {
 //world class
 class World{
   constructor(x,y,w,h){
+    this.t = 0;
     this.dt = 1;
     this.particles = [];
     this.kinEnergy = 0.0;
@@ -77,7 +99,7 @@ class World{
     this.cellList = Array(this.nCellsX*this.nCellsY);
     this.ncells = this.nCellsX*this.nCellsY;
     this.offset = [[0,0] , [1,0], [-1,1], [0,1],[1,1]];
-    this.isolatedParicles = [];
+    this.clickDistancingParticles = [];
     this.rc = createVector(this.x+this.width+250,200)
     this.cylRadius = 150;
 
@@ -155,9 +177,9 @@ class World{
     }
   }
 
-  cylinderForce(){
-      for(let k = 0; k < this.isolatedParicles.length; k++){
-          let i = this.isolatedParicles[k];
+  clickDistancingForce(){
+      for(let k = 0; k < this.clickDistancingParticles.length; k++){
+          let i = this.clickDistancingParticles[k];
           var maxR = this.cylRadius - 0.5*this.particles[i].diam
           var dr = p5.Vector.sub(this.particles[i].position,this.rc);
           var drmagsq = dr.magSq()
@@ -171,10 +193,10 @@ class World{
           }
       }
 
-      for(let k = 0; k < this.isolatedParicles.length-1; k++){
-          let i = this.isolatedParicles[k];
-          for(let l = k+1; l < this.isolatedParicles.length; l++){
-            let j = this.isolatedParicles[l];
+      for(let k = 0; k < this.clickDistancingParticles.length-1; k++){
+          let i = this.clickDistancingParticles[k];
+          for(let l = k+1; l < this.clickDistancingParticles.length; l++){
+            let j = this.clickDistancingParticles[l];
             const p_i = this.particles[i];
             const p_j = this.particles[j];
             var diam = 0.5*p_i.diam + 0.5*p_j.diam
@@ -368,14 +390,14 @@ class World{
       }else if (p.s === 'IR' || p.s === 'IU' ){
         p.timeHealing +=1;
       }
-      if (p.timeIncubation > invsigma){
+      if (p.timeIncubation > incubationPeriod){
         let r = random();
         p.s = 'IU'
         if (r<alpha0) p.s = 'IR';
         p.timeHealing = 0;
         p.timeIncubation = 0;
       } 
-      if (p.timeHealing > invgamma){
+      if (p.timeHealing > infectionPeriod){
         let r = random();
         if (p.s==='IR' && r < phi) p.s = 'D';
         else p.s = 'R';
@@ -388,12 +410,13 @@ class World{
   update(){
     this.elasticCollisions();
     this.wallCollision();
-    this.cylinderForce();
+    this.clickDistancingForce();
     this.updatePos(this.dt);    
     this.computeProperties();
+    this.t+=this.dt;
   }
   
-  mouseParticle(mx,my){
+  clickDistancing(mx,my){
     let j = floor((mx - this.x)/this.cellWidth);
     let i = floor((my - this.y)/this.cellHeight);
     let c = j + i*this.nCellsX
@@ -429,19 +452,19 @@ class World{
       if (this.particles[n].s === 'IR'){
         this.particles[n].isolated = true;
         this.particles[n].position.set(this.rc.x, this.rc.y);
-        this.isolatedParicles.push(n)
+        this.clickDistancingParticles.push(n)
         // this.particles[n].velocity.set(0, 0);
       }
     }
   }
 
   show(){
-    fill(200);
+    fill(127);
     stroke(255);
     strokeWeight(2);
     rect(this.x, this.y, this.width,this.height)
 
-    if (this.isolatedParicles.length >0){
+    if (this.clickDistancingParticles.length >0){
       fill(200,150,150,100)
       ellipse(this.rc.x, this.rc.y, 2*this.cylRadius, 2*this.cylRadius)
     }
@@ -460,13 +483,13 @@ class World{
     fill(255);
     textAlign(LEFT,CENTER);
 
-    let msg = 't='+frameCount+' S=' + this.S.toFixed(1);
+    let msg = 't='+this.t+' S=' + this.S.toFixed(1);
     msg = msg + ' E='+ this.E.toFixed(1);
     msg = msg + ' IR='+ this.IR.toFixed(1);
     msg = msg + ' IU='+ this.IU.toFixed(1);
     msg = msg + ' R='+ this.R.toFixed(1);
     msg = msg + ' D='+ this.D.toFixed(1);
-    text(msg, this.x+10,this.height-10)
+    text(msg, this.x+10,this.height+20)
 
 
     // strokeWeight(1);
@@ -513,8 +536,8 @@ class World{
       // this.phi = 0.1;
       // this.alpha0 = 0.15;
       // this.mu = 0.5;
-      // this.invsigma = 100;
-      // this.invgamma = 300;
+      // this.incubationPeriod = 100;
+      // this.infectionPeriod = 300;
     }
 
     setVelocity(vx,vy){
